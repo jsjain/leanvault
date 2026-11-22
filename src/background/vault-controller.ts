@@ -351,6 +351,25 @@ export class VaultController {
     }
   }
 
+  async deleteLogin(id: string): Promise<void> {
+    const item = await this.findItem(id);
+    if (item.organizationId) {
+      throw new Error("Deleting organization-owned logins is not supported in this MVP.");
+    }
+    if (item.reprompt && !this.isRepromptAuthorized(item)) {
+      throw new Error("Confirm the master password for this protected login before deleting it.");
+    }
+    const session = await this.refreshSessionIfNeeded(await requireSession());
+    await this.client.softDeleteCipher(session.baseUrl, session.accessToken, id);
+    // A stale "Update" prompt must not write to the trashed item.
+    await this.pendingReady;
+    for (const [tabId, pending] of [...this.pendingCaptures]) {
+      if (pending.updateId === id) await this.clearPendingSiteLogins(tabId);
+    }
+    // The write is committed; refresh failures must not invite a second write.
+    await this.sync().catch(() => undefined);
+  }
+
   async siteSuggestions(url: string): Promise<VaultItemSummary[]> {
     const insecure = new URL(url).protocol === "http:";
     return listVaultItems(await this.requireVault(), "", url)
@@ -359,6 +378,17 @@ export class VaultController {
   }
 
   async siteCredential(id: string, url: string): Promise<{ username: string; password: string }> {
+    const item = await this.requireSiteItem(id, url);
+    return { username: item.username, password: item.password };
+  }
+
+  async siteTotp(id: string, url: string): Promise<TotpResult> {
+    const item = await this.requireSiteItem(id, url);
+    if (!item.totp) throw new Error("This login does not have an authenticator key.");
+    return generateTotp(item.totp);
+  }
+
+  private async requireSiteItem(id: string, url: string): Promise<VaultItem> {
     const item = await this.findItem(id);
     if (!matchesCurrentUrl(item, url)) throw new Error("This login is not mapped to the current website.");
     if (new URL(url).protocol === "http:" && item.uris.some(({ uri }) => /^https:\/\//i.test(uri))) {
@@ -367,7 +397,7 @@ export class VaultController {
     if (item.reprompt && !this.isRepromptAuthorized(item)) {
       throw new Error("Open LeanVault and confirm the master password for this protected login.");
     }
-    return { username: item.username, password: item.password };
+    return item;
   }
 
   async inspectSiteLogin(
@@ -443,12 +473,15 @@ export class VaultController {
     }
     if (pending.saving) throw new Error("This login is already being saved.");
     pending.saving = true;
-    const input: LoginWriteInput = edited ?? {
+    const proposed: LoginWriteInput = edited ?? {
       name: pending.name,
       username: pending.username,
       password: pending.password,
       uri: pending.url,
     };
+    // An update keeps the stored URIs.
+    const { uri: _uri, ...withoutUri } = proposed;
+    const input = pending.updateId ? withoutUri : proposed;
     try {
       if (pending.updateId) await this.updateLogin(pending.updateId, input);
       else await this.createLogin(input);

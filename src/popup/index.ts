@@ -78,10 +78,12 @@ const loginName = element<HTMLInputElement>("login-name");
 const loginUsername = element<HTMLInputElement>("login-username");
 const loginPassword = element<HTMLInputElement>("login-password");
 const loginUri = element<HTMLInputElement>("login-uri");
+const loginTotp = element<HTMLInputElement>("login-totp");
 const loginNotes = element<HTMLTextAreaElement>("login-notes");
 const loginFavorite = element<HTMLInputElement>("login-favorite");
 const editorSubmit = element<HTMLButtonElement>("editor-submit");
 const editLogin = element<HTMLButtonElement>("edit-login");
+const deleteLogin = element<HTMLButtonElement>("delete-login");
 const siteAccess = element<HTMLButtonElement>("site-access");
 const vaultTimeout = element<HTMLSelectElement>("vault-timeout");
 const settingsAccount = element<HTMLParagraphElement>("settings-account");
@@ -94,6 +96,7 @@ const generatorUppercase = element<HTMLInputElement>("generator-uppercase");
 const generatorLowercase = element<HTMLInputElement>("generator-lowercase");
 const generatorNumbers = element<HTMLInputElement>("generator-numbers");
 const generatorSymbols = element<HTMLInputElement>("generator-symbols");
+const generatorSymbolSet = element<HTMLInputElement>("generator-symbol-set");
 const askAddLogin = element<HTMLInputElement>("ask-add-login");
 const savePromptTimeout = element<HTMLInputElement>("save-prompt-timeout");
 const askUpdateLogin = element<HTMLInputElement>("ask-update-login");
@@ -156,6 +159,10 @@ navGenerator.addEventListener("click", () => {
 siteAccess.addEventListener("click", () => void toggleSiteIntegration());
 vaultTimeout.addEventListener("change", () => void updateVaultTimeout());
 editLogin.addEventListener("click", () => selectedItem && openEditor(selectedItem));
+confirmClick(deleteLogin, () => selectedItem && void deleteItem(selectedItem.id));
+itemList.addEventListener("scroll", () => {
+  for (const menu of itemList.querySelectorAll<HTMLElement>(".item-menu:popover-open")) menu.hidePopover();
+});
 headerBack.addEventListener("click", () => {
   if (currentView === "editor" && editingId) {
     const id = editingId;
@@ -187,6 +194,7 @@ for (const input of [
   generatorLowercase,
   generatorNumbers,
   generatorSymbols,
+  generatorSymbolSet,
 ]) {
   input.addEventListener("input", refreshGeneratedPassword);
   input.addEventListener("change", () => void persistGeneratorOptions());
@@ -240,6 +248,8 @@ async function refreshSettings(): Promise<void> {
   generatorLowercase.checked = generatorOptions.lowercase;
   generatorNumbers.checked = generatorOptions.numbers;
   generatorSymbols.checked = generatorOptions.symbols;
+  generatorSymbolSet.value = generatorOptions.symbolSet;
+  generatorSymbolSet.disabled = !generatorOptions.symbols;
   renderExcludedDomains();
   updateSiteAccessButton();
 }
@@ -615,23 +625,38 @@ function createItemRow(item: VaultItemSummary): HTMLElement {
     actions.append(fillButton);
   }
   if (item.uri) actions.append(rowIconButton("↗", "Open website", () => void openWebsite(item.uri!)));
-  actions.append(rowIconButton("⧉", "Copy password", () => void copyItemPassword(item.id)));
+  const copyButton = rowIconButton("⧉", "Copy");
+  const copyMenu = floatingMenu(copyButton);
+  const choose = (action: () => void) => () => {
+    copyMenu.hidePopover();
+    action();
+  };
+  if (item.username) copyMenu.append(itemAction("Copy username", choose(() => void copySecret(item.username, "Username copied."))));
+  copyMenu.append(itemAction("Copy password", choose(() => void copyItemPassword(item.id))));
+  if (item.hasTotp) copyMenu.append(itemAction("Copy verification code", choose(() => void copyItemTotp(item))));
+  actions.append(copyButton);
 
-  const menu = document.createElement("div");
-  menu.className = "item-menu";
-  menu.hidden = true;
+  const moreButton = rowIconButton("⋮", "More actions");
+  const menu = floatingMenu(moreButton);
+  const chooseMore = (action: () => void) => () => {
+    menu.hidePopover();
+    action();
+  };
   menu.append(
-    itemAction("Copy username", () => void copySecret(item.username, "Username copied.")),
-    itemAction("Copy password", () => void copyItemPassword(item.id)),
+    itemAction("Copy username", chooseMore(() => void copySecret(item.username, "Username copied."))),
+    itemAction("Copy password", chooseMore(() => void copyItemPassword(item.id))),
   );
-  if (item.editable) menu.append(itemAction("Edit", () => void editItem(item.id)));
-  actions.append(
-    rowIconButton("⋮", "More actions", () => {
-      closeItemMenus(menu);
-      menu.hidden = !menu.hidden;
-    }),
-  );
-  row.append(icon, main, actions, menu);
+  if (item.editable) {
+    menu.append(itemAction("Edit", chooseMore(() => void editItem(item.id))));
+    const del = itemAction("Delete", () => {});
+    confirmClick(del, () => {
+      menu.hidePopover();
+      void deleteItem(item.id);
+    });
+    menu.append(del);
+  }
+  actions.append(moreButton);
+  row.append(icon, main, actions, copyMenu, menu);
   return row;
 }
 
@@ -665,9 +690,61 @@ function siteFavicon(uri?: string): HTMLImageElement | null {
   }
 }
 
-function closeItemMenus(except?: HTMLElement): void {
-  for (const menu of itemList.querySelectorAll<HTMLElement>(".item-menu")) {
-    if (menu !== except) menu.hidden = true;
+function floatingMenu(trigger: HTMLButtonElement): HTMLDivElement {
+  const menu = document.createElement("div");
+  menu.className = "item-menu";
+  menu.popover = "auto";
+  trigger.popoverTargetElement = menu;
+  menu.addEventListener("toggle", (event) => {
+    if ((event as ToggleEvent).newState !== "open") return;
+    const anchor = trigger.getBoundingClientRect();
+    const box = menu.getBoundingClientRect();
+    const edge = 8;
+    const left = Math.max(edge, Math.min(anchor.right - box.width, window.innerWidth - box.width - edge));
+    const below = anchor.bottom + 4;
+    const top = below + box.height > window.innerHeight - edge ? Math.max(edge, anchor.top - box.height - 4) : below;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  });
+  return menu;
+}
+
+// Arms on first click, runs the action on a second click within 4 seconds.
+function confirmClick(button: HTMLButtonElement, action: () => void): void {
+  const label = button.textContent;
+  let timer: number | undefined;
+  const reset = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    button.textContent = label;
+  };
+  button.addEventListener("click", () => {
+    if (timer === undefined) {
+      button.textContent = "Click again to delete";
+      timer = window.setTimeout(reset, 4000);
+      return;
+    }
+    reset();
+    action();
+  });
+}
+
+async function deleteItem(id: string): Promise<void> {
+  try {
+    const item = await getItemDetail(id);
+    if (item.protected) {
+      renderDetail(item);
+      showStatus("Confirm your master password before deleting this login.", "neutral");
+      return;
+    }
+    const data = await request({ type: "vault.delete", id });
+    if (data.type !== "done") throw new Error("The background worker returned an invalid delete response.");
+    selectedItem = null;
+    showView("vault");
+    await loadItems();
+    showStatus("Login moved to trash.", "success");
+  } catch (error) {
+    showError(error);
   }
 }
 
@@ -699,6 +776,7 @@ function renderDetail(item: VaultItemDetail): void {
   fillDetail.hidden = item.protected;
   totpRow.hidden = !item.hasTotp;
   editLogin.hidden = !item.editable || item.protected;
+  deleteLogin.hidden = editLogin.hidden;
   detailTotp.textContent = item.hasTotp ? "Loading…" : "";
   element<HTMLButtonElement>("reveal-password").textContent = "Show";
   showView("detail");
@@ -718,14 +796,14 @@ function itemAction(label: string, action: () => void): HTMLButtonElement {
   return button;
 }
 
-function rowIconButton(glyph: string, label: string, action: () => void): HTMLButtonElement {
+function rowIconButton(glyph: string, label: string, action?: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.className = "row-icon-button";
   button.type = "button";
   button.textContent = glyph;
   button.title = label;
   button.setAttribute("aria-label", label);
-  button.addEventListener("click", action);
+  if (action) button.addEventListener("click", action);
   return button;
 }
 
@@ -738,6 +816,21 @@ async function copyItemPassword(id: string): Promise<void> {
       return;
     }
     await copySecret(item.password, "Password copied.");
+  } catch (error) {
+    showError(error);
+  }
+}
+
+async function copyItemTotp(item: VaultItemSummary): Promise<void> {
+  try {
+    if (item.requiresReprompt) {
+      renderDetail(await getItemDetail(item.id));
+      showStatus("Confirm your master password before copying this code.", "neutral");
+      return;
+    }
+    const data = await request({ type: "vault.totp", id: item.id });
+    if (data.type !== "totp") throw new Error("The background worker returned an invalid authenticator code.");
+    await copySecret(data.code, "Authenticator code copied.");
   } catch (error) {
     showError(error);
   }
@@ -768,6 +861,8 @@ function openEditor(item?: VaultItemDetail): void {
   loginUsername.value = item?.username ?? "";
   loginPassword.value = item?.password ?? "";
   loginUri.value = item?.uri ?? editableCurrentUrl();
+  loginTotp.value = "";
+  loginTotp.placeholder = item?.hasTotp ? "Leave blank to keep the current key" : "Base32 secret or otpauth:// URI";
   loginNotes.value = item?.notes ?? "";
   loginFavorite.checked = item?.favorite ?? false;
   showView("editor");
@@ -778,11 +873,13 @@ async function saveEditor(): Promise<void> {
   setBusy(editorSubmit, true, "Saving…");
   clearStatus();
   try {
+    const totp = loginTotp.value.trim();
     const login = {
       name: loginName.value,
       username: loginUsername.value,
       password: loginPassword.value,
       uri: loginUri.value,
+      ...(totp ? { totp } : {}),
       notes: loginNotes.value,
       favorite: loginFavorite.checked,
     };
@@ -818,27 +915,27 @@ function suggestedSiteName(): string {
 }
 
 function defaultGeneratedPassword(): string {
-  return generatePassword({
+  return generatePassword(currentGeneratorOptions());
+}
+
+function currentGeneratorOptions(): StoredGeneratorOptions {
+  return {
     length: Number(generatorLength.value),
     uppercase: generatorUppercase.checked,
     lowercase: generatorLowercase.checked,
     numbers: generatorNumbers.checked,
     symbols: generatorSymbols.checked,
-  });
+    symbolSet: generatorSymbolSet.value,
+  };
 }
 
 async function persistGeneratorOptions(): Promise<void> {
-  const options = {
-    length: Number(generatorLength.value),
-    uppercase: generatorUppercase.checked,
-    lowercase: generatorLowercase.checked,
-    numbers: generatorNumbers.checked,
-    symbols: generatorSymbols.checked,
-  };
+  const options = currentGeneratorOptions();
   try {
     const data = await request({ type: "settings.generator", options });
     if (data.type !== "settings") throw new Error("The background worker returned invalid settings.");
     generatorOptions = data.generatorOptions;
+    generatorSymbolSet.value = generatorOptions.symbolSet;
   } catch (error) {
     showError(error);
   }
@@ -847,13 +944,8 @@ async function persistGeneratorOptions(): Promise<void> {
 function refreshGeneratedPassword(): void {
   generatorLengthValue.value = generatorLength.value;
   try {
-    generatorOutput.value = generatePassword({
-      length: Number(generatorLength.value),
-      uppercase: generatorUppercase.checked,
-      lowercase: generatorLowercase.checked,
-      numbers: generatorNumbers.checked,
-      symbols: generatorSymbols.checked,
-    });
+    generatorSymbolSet.disabled = !generatorSymbols.checked;
+    generatorOutput.value = generatePassword(currentGeneratorOptions());
     clearStatus();
   } catch (error) {
     generatorOutput.value = "";

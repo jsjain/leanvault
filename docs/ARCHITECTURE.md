@@ -42,7 +42,8 @@ popup user gesture
   -> search/copy/TOTP or one-shot manual fill
   -> encrypt personal cipher fields under a random item key
   -> POST/PUT /api/ciphers and resync
-  -> optional site script: matched picker and explicit save/update prompt
+  -> optional site script: matched picker, TOTP code fill into detected 2FA fields,
+     and explicit save/update prompt (an update keeps notes, favorite, URIs and TOTP key)
 ```
 
 Organization-item mutation remains excluded because it requires preserving organization key and

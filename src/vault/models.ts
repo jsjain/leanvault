@@ -24,6 +24,7 @@ export interface VaultItemSummary {
   requiresReprompt: boolean;
   editable: boolean;
   matched: boolean;
+  hasTotp: boolean;
   uri?: string;
 }
 

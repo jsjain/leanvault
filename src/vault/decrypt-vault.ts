@@ -85,6 +85,7 @@ export function listVaultItems(
       requiresReprompt: item.reprompt,
       editable: item.organizationId === undefined,
       matched,
+      hasTotp: Boolean(item.totp),
       ...(item.uris[0] ? { uri: item.uris[0].uri } : {}),
     }));
 }

@@ -115,6 +115,9 @@ async function dispatch(request: ExtensionRequest, sender: chrome.runtime.Messag
     case "vault.update":
       await controller.updateLogin(request.id, request.login);
       return { type: "done" };
+    case "vault.delete":
+      await controller.deleteLogin(request.id);
+      return { type: "done" };
     case "settings.get":
       return currentSettings();
     case "settings.siteIntegration":
@@ -145,6 +148,12 @@ async function dispatch(request: ExtensionRequest, sender: chrome.runtime.Messag
       requireSiteSender(sender, request.url);
       await requireSiteAllowed(request.url);
       return { type: "siteCredential", ...(await controller.siteCredential(request.id, request.url)) };
+    }
+    case "site.totp": {
+      await requireSiteIntegrationEnabled();
+      requireSiteSender(sender, request.url);
+      await requireSiteAllowed(request.url);
+      return { type: "totp", ...(await controller.siteTotp(request.id, request.url)) };
     }
     case "site.inspect": {
       await requireSiteIntegrationEnabled();

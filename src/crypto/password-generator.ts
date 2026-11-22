@@ -4,13 +4,21 @@ export interface PasswordGeneratorOptions {
   lowercase: boolean;
   numbers: boolean;
   symbols: boolean;
+  /** Symbols to draw from; empty or omitted means ALL_SYMBOLS. */
+  symbolSet?: string;
+}
+
+export const ALL_SYMBOLS = "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~";
+
+/** Keeps only distinct printable ASCII symbols, in input order. */
+export function cleanSymbolSet(value: string): string {
+  return [...new Set(value)].filter((character) => ALL_SYMBOLS.includes(character)).join("");
 }
 
 const CHARACTER_SETS = {
   uppercase: "ABCDEFGHJKLMNPQRSTUVWXYZ",
   lowercase: "abcdefghijkmnopqrstuvwxyz",
   numbers: "23456789",
-  symbols: "!@#$%^&*_-+=",
 } as const;
 
 export function generatePassword(options: PasswordGeneratorOptions): string {
@@ -22,7 +30,7 @@ export function generatePassword(options: PasswordGeneratorOptions): string {
     options.uppercase ? CHARACTER_SETS.uppercase : "",
     options.lowercase ? CHARACTER_SETS.lowercase : "",
     options.numbers ? CHARACTER_SETS.numbers : "",
-    options.symbols ? CHARACTER_SETS.symbols : "",
+    options.symbols ? cleanSymbolSet(options.symbolSet ?? "") || ALL_SYMBOLS : "",
   ].filter(Boolean);
   if (enabledSets.length === 0) {
     throw new Error("Select at least one character type.");

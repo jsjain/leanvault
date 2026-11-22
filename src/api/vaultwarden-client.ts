@@ -202,6 +202,15 @@ export class VaultwardenClient {
     );
   }
 
+  async softDeleteCipher(baseUrl: string, accessToken: string, id: string): Promise<void> {
+    const environment = normalizeServerEnvironment(baseUrl);
+    const url = `${environment.apiUrl}/ciphers/${encodeURIComponent(id)}/delete`;
+    const init = { method: "PUT", headers: { Authorization: `Bearer ${accessToken}` } };
+    const response = await this.fetchRaw(url, init);
+    // Vaultwarden answers 200 with an empty body, so success is not parsed.
+    if (!response.ok) await throwHttpError(url, init, response);
+  }
+
   async refreshAccessToken(baseUrl: string, refreshToken: string): Promise<RefreshResult> {
     const environment = normalizeServerEnvironment(baseUrl);
     const form = new URLSearchParams({
@@ -253,9 +262,7 @@ export class VaultwardenClient {
 
   private async fetchJson(url: string, init: RequestInit): Promise<unknown> {
     const response = await this.fetchRaw(url, init);
-    if (!response.ok) {
-      throw new ApiError(`Server request failed with HTTP ${response.status}.`, response.status);
-    }
+    if (!response.ok) await throwHttpError(url, init, response);
     return parseJson(response);
   }
 
@@ -320,6 +327,32 @@ async function parseJson(response: Response): Promise<unknown> {
     return await response.json();
   } catch {
     throw new ApiError("Server returned malformed JSON.", response.status);
+  }
+}
+
+async function throwHttpError(url: string, init: RequestInit, response: Response): Promise<never> {
+  // Name the call and the server's reason: a bare status cannot be diagnosed from a user report.
+  const detail = await errorDetail(response);
+  throw new ApiError(
+    `${init.method ?? "GET"} ${new URL(url).pathname} failed with HTTP ${response.status}${detail ? `: ${detail}` : "."}`,
+    response.status,
+  );
+}
+
+async function errorDetail(response: Response): Promise<string | undefined> {
+  try {
+    const body: unknown = await response.json();
+    if (!isRecord(body)) return undefined;
+    const model = recordProperty(body, "ErrorModel");
+    const error = recordProperty(body, "error");
+    return firstNonEmptyString(
+      model ? stringProperty(model, "Message") : undefined,
+      stringProperty(body, "Message"),
+      error ? stringProperty(error, "description") : undefined,
+      stringProperty(body, "error_description"),
+    )?.slice(0, 300);
+  } catch {
+    return undefined;
   }
 }
 

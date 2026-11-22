@@ -19,6 +19,14 @@ describe("password generator", () => {
     expect(password).toMatch(/[!@#$%^&*_.+=-]/);
   });
 
+  it("draws symbols only from the allowed list", () => {
+    for (let run = 0; run < 20; run += 1) {
+      const password = generatePassword({ length: 40, uppercase: false, lowercase: true, numbers: false, symbols: true, symbolSet: "_-" });
+      expect(password).toMatch(/^[a-z_-]+$/);
+      expect(password).toMatch(/[_-]/);
+    }
+  });
+
   it("rejects an empty character selection", () => {
     expect(() =>
       generatePassword({

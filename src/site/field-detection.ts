@@ -32,3 +32,32 @@ export function canBeUsernameField(typeInput: string, hintInput: string): boolea
   const type = typeInput.toLowerCase();
   return supportedTypes.has(type) && type !== "search" && !nonCredential.test(hintInput.toLowerCase());
 }
+
+export interface TotpFieldSignals {
+  type: string;
+  autocomplete: string;
+  inputHint: string;
+  maxLength: number;
+}
+
+const totpTypes = new Set(["", "text", "tel", "number", "password"]);
+const credentialAutocomplete = /^(?:username|email|current-password|new-password|cc-.*)$/;
+const notTotp = /captcha|coupon|promo|voucher|gift|discount|invite|referral|zip|postal|country|search|backup|recovery|user|client|access|account|email|card|cvv|cvc/;
+// Substrings, not word matches: attribute names arrive as otp_code or lowercased otpCode.
+const strongTotpHint = /otp|mfa|2fa|one[\s_-]*time|two[\s_-]*(?:factor|step)|multi[\s_-]*factor|authenticator|verification[\s_-]*code|security[\s_-]*code|auth[\s_-]*code/;
+const weakTotpHint = /\bcode\b|\btoken\b/;
+
+export function looksLikeTotpField(signals: TotpFieldSignals): boolean {
+  const type = signals.type.toLowerCase();
+  if (!totpTypes.has(type)) return false;
+  // ponytail: split one-digit-per-box OTP inputs are not supported; fill the first box by hand or add per-box filling if needed.
+  if (signals.maxLength > 0 && signals.maxLength < 6) return false;
+  const autocomplete = signals.autocomplete.trim().toLowerCase();
+  if (autocomplete.includes("one-time-code")) return true;
+  if (credentialAutocomplete.test(autocomplete)) return false;
+  const hint = signals.inputHint.toLowerCase();
+  if (notTotp.test(hint)) return false;
+  if (strongTotpHint.test(hint)) return true;
+  // A bare "code"/"token" label needs a code-shaped input too.
+  return weakTotpHint.test(hint) && (type === "tel" || type === "number" || (signals.maxLength >= 6 && signals.maxLength <= 10));
+}

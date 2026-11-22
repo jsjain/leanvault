@@ -1,6 +1,6 @@
 import type { ExtensionRequest, ExtensionResponse, ResponseData } from "../shared/messages";
 import type { LoginWriteInput } from "../vault/encrypt-login";
-import { canBeUsernameField, looksLikeUsernameField } from "./field-detection";
+import { canBeUsernameField, looksLikeTotpField, looksLikeUsernameField } from "./field-detection";
 
 type Suggestion = Extract<ResponseData, { type: "siteSuggestions" }>["items"][number];
 type SitePrompt = NonNullable<Extract<ResponseData, { type: "sitePrompt" }>["prompt"]>;
@@ -12,7 +12,8 @@ let suggestionsLoad: Promise<void> | null = null;
 let lastUsername = "";
 let lastCapture = "";
 let activeField: HTMLInputElement | null = null;
-let activeFieldKind: "username" | "password" | null = null;
+type FieldKind = "username" | "password" | "totp";
+let activeFieldKind: FieldKind | null = null;
 let activeSavePromptId: string | null = null;
 let dismissActiveSavePrompt: (() => void) | null = null;
 
@@ -55,7 +56,7 @@ function handleFocus(event: FocusEvent): void {
 
 function activateField(input: HTMLInputElement): void {
   activeField = input;
-  activeFieldKind = input.type.toLowerCase() === "password" ? "password" : "username";
+  activeFieldKind = fieldKind(input);
   if (isUsernameField(input) && input.value) lastUsername = input.value;
   void loadSuggestions().then(() => {
     if (activeField !== input || !input.isConnected || !isCredentialField(input)) return;
@@ -90,7 +91,7 @@ function observeDynamicCredentialFields(): void {
     requestAnimationFrame(() => {
       scheduled = false;
       const focused = deepActiveInput();
-      const focusedKind = focused?.type.toLowerCase() === "password" ? "password" : "username";
+      const focusedKind = focused && fieldKind(focused);
       if (focused && isCredentialField(focused) && (focused !== activeField || focusedKind !== activeFieldKind)) {
         activateField(focused);
       } else if (activeField && (!activeField.isConnected || !isCredentialField(activeField))) {
@@ -117,7 +118,9 @@ function rememberInput(event: Event): void {
 
 function showFieldMenu(input: HTMLInputElement): void {
   closeFieldMenu();
-  if (suggestions.length === 0 && input.type.toLowerCase() !== "password") return;
+  const totp = isTotpField(input);
+  const items = totp ? suggestions.filter((item) => item.hasTotp) : suggestions;
+  if (items.length === 0 && (totp || input.type.toLowerCase() !== "password")) return;
   const host = overlayHost("leanvault-field-menu", input);
   const root = host.shadowRoot!;
   root.innerHTML = `<style>${styles}</style><div class="field-menu" role="listbox"><div class="menu-title"><span>LeanVault</span><button class="menu-close" type="button" aria-label="Dismiss autofill suggestions" title="Dismiss">×</button></div><div class="choices"></div></div>`;
@@ -125,7 +128,7 @@ function showFieldMenu(input: HTMLInputElement): void {
   const close = root.querySelector<HTMLButtonElement>(".menu-close")!;
   close.addEventListener("pointerdown", (event) => event.preventDefault());
   close.addEventListener("click", () => closeFieldMenu(host));
-  for (const item of suggestions) {
+  for (const item of items) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "choice";
@@ -141,17 +144,17 @@ function showFieldMenu(input: HTMLInputElement): void {
     const name = document.createElement("strong");
     name.textContent = item.name;
     const username = document.createElement("span");
-    username.textContent = item.username || "Login";
+    username.textContent = totp ? "Verification code" : item.username || "Login";
     copy.append(name, username);
     const glyph = document.createElement("span");
     glyph.className = "fill-glyph";
     glyph.textContent = "↗";
     button.append(icon, copy, glyph);
     button.addEventListener("pointerdown", (event) => event.preventDefault());
-    button.addEventListener("click", () => void fill(item.id, input));
+    button.addEventListener("click", () => void (totp ? fillTotp(item.id, input) : fill(item.id, input)));
     choices.append(button);
   }
-  if (input.type.toLowerCase() === "password") {
+  if (!totp && input.type.toLowerCase() === "password") {
     const generate = document.createElement("button");
     generate.type = "button";
     generate.className = "generate-choice";
@@ -224,6 +227,17 @@ async function fill(id: string, preferred: HTMLInputElement): Promise<void> {
     closeFieldMenu();
   } catch (error) {
     showTransient(error instanceof Error ? error.message : "LeanVault could not fill this login.");
+  }
+}
+
+async function fillTotp(id: string, input: HTMLInputElement): Promise<void> {
+  try {
+    const data = await request({ type: "site.totp", id, url: location.href });
+    if (data.type !== "totp") return;
+    setInputValue(input, data.code);
+    closeFieldMenu();
+  } catch (error) {
+    showTransient(error instanceof Error ? error.message : "LeanVault could not fill this code.");
   }
 }
 
@@ -302,18 +316,18 @@ function renderSavePrompt(prompt: SitePrompt): void {
     <label>Name<input class="prompt-name" maxlength="1000" required></label>
     <label>Username<input class="prompt-username" maxlength="1000"></label>
     <label>Password<div class="password-edit"><input class="prompt-password" type="password" maxlength="10000"><button class="show" type="button">Show</button></div></label>
-    <label>Website<input class="prompt-uri" type="url" maxlength="8192"></label>
+    ${prompt.action === "update" ? "" : '<label>Website<input class="prompt-uri" type="url" maxlength="8192"></label>'}
     <div class="prompt-actions"><button class="dismiss" type="button">Not now</button><button class="save" type="submit">${prompt.action === "update" ? "Update" : "Save"}</button></div>
   </form>`;
   const form = root.querySelector<HTMLFormElement>("form")!;
   const name = root.querySelector<HTMLInputElement>(".prompt-name")!;
   const username = root.querySelector<HTMLInputElement>(".prompt-username")!;
   const password = root.querySelector<HTMLInputElement>(".prompt-password")!;
-  const uri = root.querySelector<HTMLInputElement>(".prompt-uri")!;
+  const uri = root.querySelector<HTMLInputElement>(".prompt-uri");
   name.value = prompt.name;
   username.value = prompt.username ?? "";
   password.value = prompt.password ?? "";
-  uri.value = prompt.uri ?? location.href;
+  if (uri) uri.value = prompt.uri ?? location.href;
   root.querySelector<HTMLButtonElement>(".show")!.addEventListener("click", (event) => {
     const button = event.currentTarget as HTMLButtonElement;
     password.type = password.type === "password" ? "text" : "password";
@@ -341,7 +355,7 @@ function renderSavePrompt(prompt: SitePrompt): void {
     save.disabled = true;
     clearTimeout(dismissTimer);
     save.textContent = "Saving…";
-    const login: LoginWriteInput = { name: name.value, username: username.value, password: password.value, uri: uri.value };
+    const login: LoginWriteInput = { name: name.value, username: username.value, password: password.value, ...(uri && { uri: uri.value }) };
     void request({ type: "site.save", promptId: prompt.id, login }).then(() => {
       dismissed = true;
       activeSavePromptId = null;
@@ -477,17 +491,31 @@ function findUsernameField(password?: HTMLInputElement, preferred?: HTMLInputEle
 }
 
 function isPasswordField(input: HTMLInputElement): boolean {
-  return input.type.toLowerCase() === "password" &&
-    !/one-time-code|\botp\b|verification.?code|security.?code|authenticator.?code/.test(inputHint(input));
+  return input.type.toLowerCase() === "password" && !isTotpField(input);
+}
+
+function isTotpField(input: HTMLInputElement): boolean {
+  if (isExtensionElement(input)) return false;
+  return looksLikeTotpField({
+    type: input.type,
+    autocomplete: input.autocomplete,
+    inputHint: inputHint(input),
+    maxLength: input.maxLength,
+  });
+}
+
+function fieldKind(input: HTMLInputElement): FieldKind {
+  if (isTotpField(input)) return "totp";
+  return input.type.toLowerCase() === "password" ? "password" : "username";
 }
 
 function isCredentialField(input: HTMLInputElement): boolean {
   if (isExtensionElement(input)) return false;
-  return isPasswordField(input) || isUsernameField(input);
+  return isPasswordField(input) || isUsernameField(input) || isTotpField(input);
 }
 
 function isUsernameField(input: HTMLInputElement): boolean {
-  if (isExtensionElement(input)) return false;
+  if (isExtensionElement(input) || isTotpField(input)) return false;
   const type = input.type.toLowerCase();
   const hint = inputHint(input);
   const root = input.getRootNode();

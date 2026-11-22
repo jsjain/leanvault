@@ -223,3 +223,52 @@ it("blocks a sync that starts while lock is clearing pending prompt storage", as
   await syncing;
   await expect(controller.list({ type: "vault.list", query: "" })).rejects.toThrow("locked");
 });
+
+it("siteTotp refuses other sites and protected items and returns a code for a match", async () => {
+  const login = { name: "Example", username: "alice", password: "secret", uri: "https://example.com", totp: "JBSWY3DPEHPK3PXP" };
+  payload = { Ciphers: [
+    { ...await createEncryptedLogin(login, key), Id: "login" },
+    { ...await createEncryptedLogin(login, key), Id: "locked", reprompt: 1 },
+    { ...await createEncryptedLogin({ ...login, totp: "" }, key), Id: "plain" },
+  ] };
+  const controller = new VaultController();
+  await controller.sync();
+  expect(await controller.siteTotp("login", "https://example.com/login")).toMatchObject({ code: expect.stringMatching(/^\d{6}$/), period: 30 });
+  await expect(controller.siteTotp("login", "https://evil.example")).rejects.toThrow("not mapped");
+  await expect(controller.siteTotp("locked", "https://example.com")).rejects.toThrow("protected");
+  await expect(controller.siteTotp("plain", "https://example.com")).rejects.toThrow("authenticator key");
+});
+
+it("a prompt update does not rewrite the stored uris", async () => {
+  const raw: Record<string, unknown> = { ...await createEncryptedLogin({ name: "Example", username: "alice", password: "old", uri: "https://example.com" }, key), Id: "login" };
+  payload = { Ciphers: [raw] };
+  const controller = new VaultController();
+  await controller.sync();
+  const prompt = await controller.inspectSiteLogin(1, "https://example.com/login", "alice", "new", options, 0);
+  expect(prompt).toMatchObject({ action: "update" });
+  let put: { login: { uris: unknown[] } } | undefined;
+  fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+    if (init.method === "PUT") put = JSON.parse(init.body as string);
+    return new Response(JSON.stringify(url.endsWith("/ciphers/login") ? raw : payload), { headers: { "content-type": "application/json" } });
+  });
+  await controller.savePendingSiteLogin(1, prompt!.id, { name: "Example", username: "alice", password: "new", uri: "https://example.com/login" });
+  expect(put!.login.uris).toEqual((raw.login as { uris: unknown[] }).uris);
+});
+
+it("delete refuses an unauthorized reprompt item and trashes a normal one", async () => {
+  const login = { name: "Example", username: "alice", password: "secret", uri: "https://example.com" };
+  payload = { Ciphers: [
+    { ...await createEncryptedLogin(login, key), Id: "plain" },
+    { ...await createEncryptedLogin(login, key), Id: "locked", reprompt: 1 },
+  ] };
+  const controller = new VaultController();
+  await controller.sync();
+  await expect(controller.deleteLogin("locked")).rejects.toThrow("protected login before deleting");
+  const calls: string[] = [];
+  fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+    calls.push(`${init.method} ${url}`);
+    return init.method === "PUT" ? new Response(null, { status: 200 }) : new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } });
+  });
+  await controller.deleteLogin("plain");
+  expect(calls[0]).toBe("PUT https://vault.example.com/api/ciphers/plain/delete");
+});

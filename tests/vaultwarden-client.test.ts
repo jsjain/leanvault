@@ -191,4 +191,20 @@ describe("VaultwardenClient", () => {
       }),
     ).rejects.toThrow("SSO sign-in is required");
   });
+  it("soft-deletes a cipher with PUT and accepts an empty 200 body", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    const client = new VaultwardenClient(fetchMock);
+
+    await expect(client.softDeleteCipher("https://vault.example.com", "tok", "a/b")).resolves.toBeUndefined();
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("https://vault.example.com/api/ciphers/a%2Fb/delete");
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "PUT", headers: { Authorization: "Bearer tok" } });
+  });
+
+  it("rejects a failed soft delete with the HTTP status", async () => {
+    const client = new VaultwardenClient(vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ Message: "nope" }, 404)));
+
+    await expect(client.softDeleteCipher("https://vault.example.com", "tok", "x")).rejects.toThrow(
+      "PUT /api/ciphers/x/delete failed with HTTP 404: nope",
+    );
+  });
 });

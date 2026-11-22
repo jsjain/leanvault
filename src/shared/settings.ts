@@ -1,3 +1,5 @@
+import { ALL_SYMBOLS, cleanSymbolSet } from "../crypto/password-generator";
+
 export const VAULT_TIMEOUT_OPTIONS = [-1, 0, 15, 60, 240] as const;
 
 export type VaultTimeoutMinutes = (typeof VAULT_TIMEOUT_OPTIONS)[number];
@@ -15,6 +17,7 @@ export interface StoredGeneratorOptions {
   lowercase: boolean;
   numbers: boolean;
   symbols: boolean;
+  symbolSet: string;
 }
 
 const VAULT_TIMEOUT_KEY = "leanvault.vaultTimeoutMinutes";
@@ -35,6 +38,7 @@ export const DEFAULT_GENERATOR_OPTIONS: StoredGeneratorOptions = {
   lowercase: true,
   numbers: true,
   symbols: true,
+  symbolSet: ALL_SYMBOLS,
 };
 
 export async function readVaultTimeoutMinutes(): Promise<VaultTimeoutMinutes> {
@@ -104,9 +108,10 @@ export function normalizeGeneratorOptions(value: unknown): StoredGeneratorOption
   const length = Number.isSafeInteger(value.length) && Number(value.length) >= 8 && Number(value.length) <= 64
     ? Number(value.length)
     : DEFAULT_GENERATOR_OPTIONS.length;
-  const option = (name: keyof Omit<StoredGeneratorOptions, "length">): boolean =>
+  const option = (name: "uppercase" | "lowercase" | "numbers" | "symbols"): boolean =>
     typeof value[name] === "boolean" ? value[name] as boolean : DEFAULT_GENERATOR_OPTIONS[name];
-  const result = { length, uppercase: option("uppercase"), lowercase: option("lowercase"), numbers: option("numbers"), symbols: option("symbols") };
+  const symbolSet = (typeof value.symbolSet === "string" && cleanSymbolSet(value.symbolSet)) || ALL_SYMBOLS;
+  const result = { length, uppercase: option("uppercase"), lowercase: option("lowercase"), numbers: option("numbers"), symbols: option("symbols"), symbolSet };
   return result.uppercase || result.lowercase || result.numbers || result.symbols
     ? result
     : { ...DEFAULT_GENERATOR_OPTIONS };
@@ -115,6 +120,7 @@ export function normalizeGeneratorOptions(value: unknown): StoredGeneratorOption
 export function isGeneratorOptions(value: unknown): value is StoredGeneratorOptions {
   return isRecord(value) && Number.isSafeInteger(value.length) && Number(value.length) >= 8 && Number(value.length) <= 64 &&
     ["uppercase", "lowercase", "numbers", "symbols"].every((name) => typeof value[name] === "boolean") &&
+    typeof value.symbolSet === "string" && value.symbolSet.length <= 64 &&
     Boolean(value.uppercase || value.lowercase || value.numbers || value.symbols);
 }
 

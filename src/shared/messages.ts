@@ -64,6 +64,7 @@ export type ExtensionRequest =
   | { type: "vault.fill"; id: string }
   | { type: "vault.create"; login: LoginWriteInput }
   | { type: "vault.update"; id: string; login: LoginWriteInput }
+  | { type: "vault.delete"; id: string }
   | { type: "settings.get" }
   | { type: "settings.siteIntegration"; enabled: boolean }
   | { type: "settings.vaultTimeout"; minutes: VaultTimeoutMinutes }
@@ -71,6 +72,7 @@ export type ExtensionRequest =
   | { type: "settings.generator"; options: StoredGeneratorOptions }
   | { type: "site.suggestions"; url: string }
   | { type: "site.credential"; id: string; url: string }
+  | { type: "site.totp"; id: string; url: string }
   | { type: "site.inspect"; url: string; username: string; password: string }
   | { type: "site.pendingPrompt" }
   | { type: "site.generatePassword"; url: string }
@@ -158,6 +160,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
       return boundedString(request.id, 128) && boundedString(request.masterPassword, 1_024);
     case "vault.fill":
     case "vault.totp":
+    case "vault.delete":
       return boundedString(request.id, 128);
     case "vault.create":
       return validLogin(request.login);
@@ -177,6 +180,7 @@ export function isExtensionRequest(value: unknown): value is ExtensionRequest {
     case "site.suggestions":
       return boundedString(request.url, 8_192);
     case "site.credential":
+    case "site.totp":
       return boundedString(request.id, 128) && boundedString(request.url, 8_192);
     case "site.inspect":
       return (
@@ -204,6 +208,7 @@ function validLogin(value: unknown): value is LoginWriteInput {
     optionalString(login.password, 10_000) &&
     optionalString(login.uri, 8_192) &&
     optionalString(login.notes, 10_000) &&
+    optionalString(login.totp, 4_096) &&
     (login.favorite === undefined || typeof login.favorite === "boolean")
   );
 }

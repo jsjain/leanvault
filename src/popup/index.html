@@ -116,6 +116,8 @@
             <label class="check-label"><input id="generator-numbers" type="checkbox" checked /> Numbers</label>
             <label class="check-label"><input id="generator-symbols" type="checkbox" checked /> Symbols</label>
           </div>
+          <label for="generator-symbol-set">Allowed symbols</label>
+          <input id="generator-symbol-set" autocomplete="off" spellcheck="false" maxlength="64" placeholder="Empty uses all symbols" />
         </div>
         <button id="generator-refresh" type="button">Generate another</button>
         <button id="generator-use" class="secondary" type="button">Use in a new login</button>
@@ -200,6 +202,7 @@
         </div>
         <button id="fill-detail" type="button">Fill on this page</button>
         <button id="edit-login" class="secondary" type="button">Edit login</button>
+        <button id="delete-login" class="danger-button" type="button">Delete</button>
       </section>
 
       <section id="editor-view" class="view detail-view" hidden>
@@ -216,6 +219,8 @@
           </div>
           <label for="login-uri">Website</label>
           <input id="login-uri" type="url" maxlength="8192" placeholder="https://example.com" />
+          <label for="login-totp">Authenticator key (TOTP)</label>
+          <input id="login-totp" maxlength="4096" autocomplete="off" spellcheck="false" placeholder="Base32 secret or otpauth:// URI" />
           <label for="login-notes">Notes</label>
           <textarea id="login-notes" maxlength="10000" rows="3"></textarea>
           <label class="check-label"><input id="login-favorite" type="checkbox" /> Favorite</label>

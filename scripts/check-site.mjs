@@ -78,7 +78,7 @@ try {
       tabs: { query: async () => [] },
       storage: { onChanged: { addListener: (listener) => { window.syncListener = listener; } } },
       runtime: {
-        getManifest: () => ({ version: "1.0.2" }),
+        getManifest: () => ({ version: "1.1.0" }),
         getURL: (path) => `https://extension.test${path}`,
         sendMessage: async (message) => {
           let data;
