@@ -1,4 +1,4 @@
-import { ALL_SYMBOLS } from "../src/crypto/password-generator";
+import { DEFAULT_SYMBOLS } from "../src/crypto/password-generator";
 import { describe, expect, it } from "vitest";
 
 import { isExtensionRequest } from "../src/shared/messages";
@@ -44,10 +44,11 @@ describe("browser integration settings", () => {
       options: { length: 22, uppercase: true, lowercase: true, numbers: true, symbols: true, symbolSet: "!@#" },
     })).toBe(true);
     expect(normalizeGeneratorOptions({ length: 2 })).toMatchObject({ length: 22 });
-    // Settings saved before 1.1.0 have no symbol list: they get every symbol.
-    expect(normalizeGeneratorOptions({ length: 20 }).symbolSet).toBe(ALL_SYMBOLS);
+    // Settings saved before 1.1.0 (or sent by a 1.0.x worker) have no symbol list.
+    expect(normalizeGeneratorOptions({ length: 20 }).symbolSet).toBe("!@#$%^&*_-+=");
     expect(normalizeGeneratorOptions({ symbolSet: "a$$b!" }).symbolSet).toBe("$!");
-    expect(normalizeGeneratorOptions({ symbolSet: "abc" }).symbolSet).toBe(ALL_SYMBOLS);
+    expect(normalizeGeneratorOptions({ symbolSet: "abc" }).symbolSet).toBe(DEFAULT_SYMBOLS);
+    expect(normalizeGeneratorOptions({ symbolSet: "~[]" }).symbolSet).toBe("~[]");
   });
 });
 

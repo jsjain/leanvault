@@ -10,6 +10,7 @@ import {
   DEFAULT_BROWSER_INTEGRATION_OPTIONS,
   DEFAULT_GENERATOR_OPTIONS,
   isVaultTimeoutMinutes,
+  normalizeGeneratorOptions,
   type BrowserIntegrationOptions,
   type StoredGeneratorOptions,
   type VaultTimeoutMinutes,
@@ -238,7 +239,7 @@ async function refreshSettings(): Promise<void> {
   siteIntegrationEnabled = data.siteIntegrationEnabled;
   vaultTimeoutMinutes = data.vaultTimeoutMinutes;
   browserOptions = data.browserOptions;
-  generatorOptions = data.generatorOptions;
+  generatorOptions = normalizeGeneratorOptions(data.generatorOptions);
   vaultTimeout.value = String(vaultTimeoutMinutes);
   askAddLogin.checked = browserOptions.askAddLogin;
   askUpdateLogin.checked = browserOptions.askUpdateLogin;
@@ -266,7 +267,7 @@ async function toggleSiteIntegration(): Promise<void> {
     siteIntegrationEnabled = data.siteIntegrationEnabled;
     vaultTimeoutMinutes = data.vaultTimeoutMinutes;
     browserOptions = data.browserOptions;
-    generatorOptions = data.generatorOptions;
+    generatorOptions = normalizeGeneratorOptions(data.generatorOptions);
     updateSiteAccessButton();
     showStatus(siteIntegrationEnabled ? "Website autofill and save prompts enabled." : "Website prompts disabled.", "success");
   } catch (error) {
@@ -934,7 +935,7 @@ async function persistGeneratorOptions(): Promise<void> {
   try {
     const data = await request({ type: "settings.generator", options });
     if (data.type !== "settings") throw new Error("The background worker returned invalid settings.");
-    generatorOptions = data.generatorOptions;
+    generatorOptions = normalizeGeneratorOptions(data.generatorOptions);
     generatorSymbolSet.value = generatorOptions.symbolSet;
   } catch (error) {
     showError(error);

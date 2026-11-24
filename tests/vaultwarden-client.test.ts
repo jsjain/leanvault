@@ -207,4 +207,19 @@ describe("VaultwardenClient", () => {
       "PUT /api/ciphers/x/delete failed with HTTP 404: nope",
     );
   });
+it("tags cipher writes with the token's user id", async () => {
+    const token = `h.${btoa(JSON.stringify({ sub: "user-1" })).replace(/=+$/, "")}.s`;
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => jsonResponse({ id: "c1" }));
+    const client = new VaultwardenClient(fetchMock);
+
+    await client.createCipher("https://vault.example.com", token, { type: 1 });
+    await client.updateCipher("https://vault.example.com", token, "c1", { type: 1 });
+
+    for (const call of fetchMock.mock.calls) {
+      expect(JSON.parse(String(call[1]?.body))).toEqual({ type: 1, encryptedFor: "user-1" });
+    }
+    await expect(client.updateCipher("https://vault.example.com", "opaque", "c1", {})).rejects.toThrow(
+      "does not identify a user",
+    );
+  });
 });

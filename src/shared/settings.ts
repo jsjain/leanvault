@@ -1,4 +1,4 @@
-import { ALL_SYMBOLS, cleanSymbolSet } from "../crypto/password-generator";
+import { DEFAULT_SYMBOLS, cleanSymbolSet } from "../crypto/password-generator";
 
 export const VAULT_TIMEOUT_OPTIONS = [-1, 0, 15, 60, 240] as const;
 
@@ -38,7 +38,7 @@ export const DEFAULT_GENERATOR_OPTIONS: StoredGeneratorOptions = {
   lowercase: true,
   numbers: true,
   symbols: true,
-  symbolSet: ALL_SYMBOLS,
+  symbolSet: DEFAULT_SYMBOLS,
 };
 
 export async function readVaultTimeoutMinutes(): Promise<VaultTimeoutMinutes> {
@@ -110,7 +110,7 @@ export function normalizeGeneratorOptions(value: unknown): StoredGeneratorOption
     : DEFAULT_GENERATOR_OPTIONS.length;
   const option = (name: "uppercase" | "lowercase" | "numbers" | "symbols"): boolean =>
     typeof value[name] === "boolean" ? value[name] as boolean : DEFAULT_GENERATOR_OPTIONS[name];
-  const symbolSet = (typeof value.symbolSet === "string" && cleanSymbolSet(value.symbolSet)) || ALL_SYMBOLS;
+  const symbolSet = (typeof value.symbolSet === "string" && cleanSymbolSet(value.symbolSet)) || DEFAULT_SYMBOLS;
   const result = { length, uppercase: option("uppercase"), lowercase: option("lowercase"), numbers: option("numbers"), symbols: option("symbols"), symbolSet };
   return result.uppercase || result.lowercase || result.numbers || result.symbols
     ? result

@@ -12,6 +12,7 @@ vi.mock("../src/shared/database", () => ({
 }));
 vi.mock("../src/shared/persistent-session", () => ({ clearPersistentAuthSession: async () => undefined }));
 const key = new Uint8Array(64).fill(7);
+const token = `h.${btoa(JSON.stringify({ sub: "user-1" }))}.s`;
 let local: Record<string, unknown>;
 let session: Record<string, unknown>;
 let payload: SyncResponse;
@@ -23,7 +24,7 @@ const storage = (data: Record<string, unknown>) => ({
 });
 beforeEach(() => {
   local = { accountMetadata: { email: "test@example.com", baseUrl: "https://vault.example.com", itemCount: 0 }, serverSnapshot: { baseUrl: "https://vault.example.com" } };
-  session = { authSession: { email: "test@example.com", baseUrl: "https://vault.example.com", accessToken: "test", userKey: [...key] } };
+  session = { authSession: { email: "test@example.com", baseUrl: "https://vault.example.com", accessToken: token, userKey: [...key] } };
   encrypted = payload = { Ciphers: [] };
   vi.stubGlobal("chrome", { storage: { local: storage(local), session: storage(session) } });
   fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { headers: { "content-type": "application/json" } }));
@@ -155,7 +156,7 @@ it("refreshes an expired token once when a sync and edit run together", async ()
     if (url.endsWith("/connect/token")) {
       refreshes++;
       await waiting;
-      body = { access_token: "new token", refresh_token: "new refresh", expires_in: 3600 };
+      body = { access_token: token, refresh_token: "new refresh", expires_in: 3600 };
     }
     return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" } });
   });

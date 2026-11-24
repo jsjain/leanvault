@@ -6,6 +6,7 @@ import {
 } from "../shared/constants";
 import { normalizeServerEnvironment } from "../shared/environment";
 import { parseKdfConfig, type KdfConfig } from "../shared/kdf";
+import { decodeUtf8, fromBase64 } from "../crypto/bytes";
 import { ApiError } from "./api-error";
 import type { LoginResult, PasswordLoginInput, RefreshResult, SyncResponse } from "./models";
 
@@ -24,6 +25,20 @@ export interface ServerCheckResult {
 export interface PreloginResult {
   kdf: KdfConfig;
   endpoint: "password" | "legacy";
+}
+
+// Vaultwarden 2026.x rejects cipher writes with 422 unless encryptedFor names the token's user.
+function tokenSubject(accessToken: string): string {
+  let subject: unknown;
+  try {
+    subject = JSON.parse(decodeUtf8(fromBase64(accessToken.split(".")[1] ?? ""))).sub;
+  } catch {
+    subject = undefined;
+  }
+  if (typeof subject !== "string" || !subject) {
+    throw new ApiError("The access token does not identify a user. Sign in again.");
+  }
+  return subject;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -184,7 +199,10 @@ export class VaultwardenClient {
     accessToken: string,
     payload: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    return this.authenticatedRecord(baseUrl, accessToken, "/ciphers", "POST", payload);
+    return this.authenticatedRecord(baseUrl, accessToken, "/ciphers", "POST", {
+      ...payload,
+      encryptedFor: tokenSubject(accessToken),
+    });
   }
 
   async updateCipher(
@@ -198,7 +216,7 @@ export class VaultwardenClient {
       accessToken,
       `/ciphers/${encodeURIComponent(id)}`,
       "PUT",
-      payload,
+      { ...payload, encryptedFor: tokenSubject(accessToken) },
     );
   }
 
